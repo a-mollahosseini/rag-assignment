@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rag-assignment"
+version = "0.1.0"
+description = "Ollama-based RAG pipeline for clinical-trial PDF question answering."
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+rag-assignment = "rag_assignment.cli:main"
