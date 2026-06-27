@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import csv
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from .rag import RagAnswer, answer_question
 
 QUESTION_COLUMNS = {"question", "questions", "query"}
 ANSWER_COLUMNS = {"answer", "answers", "gold_answer", "reference_answer", "expected_answer"}
+SOURCE_COLUMNS = {"source", "reference_source", "expected_source"}
 
 
 @dataclass(frozen=True)
@@ -21,6 +23,7 @@ class QuestionRow:
     index: int
     question: str
     reference_answer: str | None = None
+    reference_source: str | None = None
 
 
 def _normalize_text(value: str) -> str:
@@ -57,7 +60,16 @@ def hallucination_flag(answer: str, contexts: list[str]) -> str:
     return "No obvious hallucination"
 
 
-def recall_at_1(question: str, top_source: str | None) -> str:
+def recall_at_1(
+    question: str,
+    top_source: str | None,
+    reference_source: str | None = None,
+) -> str:
+    if reference_source:
+        if not top_source:
+            return "False"
+        return str(Path(reference_source).name.upper() == Path(top_source).name.upper())
+
     trial_ids = re.findall(r"NCT\d{8}", question.upper())
     if not trial_ids:
         return "N/A"
@@ -67,30 +79,45 @@ def recall_at_1(question: str, top_source: str | None) -> str:
 
 
 def read_questions(path: Path) -> list[QuestionRow]:
-    try:
-        import pandas as pd
-    except ImportError as exc:
-        raise missing_dependency_error("pandas and openpyxl") from exc
-
     if not path.exists():
         raise FileNotFoundError(f"Questions workbook not found: {path}")
 
-    df = pd.read_excel(path)
-    if df.empty:
-        raise ValueError(f"No questions found in {path}")
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        with path.open(encoding="utf-8-sig", newline="") as file:
+            records = list(csv.DictReader(file))
+        if not records:
+            raise ValueError(f"No questions found in {path}")
+        columns = list(records[0].keys())
+        row_items = enumerate(records)
+    else:
+        try:
+            import pandas as pd
+        except ImportError as exc:
+            raise missing_dependency_error("pandas and openpyxl") from exc
 
-    normalized_columns = {str(col).strip().lower(): col for col in df.columns}
+        df = pd.read_excel(path)
+        if df.empty:
+            raise ValueError(f"No questions found in {path}")
+        columns = list(df.columns)
+        row_items = df.iterrows()
+
+    normalized_columns = {str(col).strip().lower(): col for col in columns}
     question_col = next(
         (normalized_columns[name] for name in QUESTION_COLUMNS if name in normalized_columns),
-        df.columns[0],
+        columns[0],
     )
     answer_col = next(
         (normalized_columns[name] for name in ANSWER_COLUMNS if name in normalized_columns),
         None,
     )
+    source_col = next(
+        (normalized_columns[name] for name in SOURCE_COLUMNS if name in normalized_columns),
+        None,
+    )
 
     rows: list[QuestionRow] = []
-    for idx, record in df.iterrows():
+    for idx, record in row_items:
         raw_question: Any = record.get(question_col)
         if raw_question is None or str(raw_question).strip() == "":
             continue
@@ -98,7 +125,18 @@ def read_questions(path: Path) -> list[QuestionRow]:
         reference = None
         if raw_reference is not None and str(raw_reference).strip().lower() != "nan":
             reference = str(raw_reference).strip()
-        rows.append(QuestionRow(index=int(idx) + 1, question=str(raw_question).strip(), reference_answer=reference))
+        raw_source = record.get(source_col) if source_col is not None else None
+        source = None
+        if raw_source is not None and str(raw_source).strip().lower() != "nan":
+            source = str(raw_source).strip()
+        rows.append(
+            QuestionRow(
+                index=int(idx) + 1,
+                question=str(raw_question).strip(),
+                reference_answer=reference,
+                reference_source=source,
+            )
+        )
 
     return rows
 
@@ -115,7 +153,12 @@ def row_from_answer(row: QuestionRow, result: RagAnswer) -> dict[str, Any]:
         "citations": result.citation_text,
         "top_document": result.top_source,
         "top_page": result.top_page,
-        "recall_at_1": recall_at_1(row.question, result.top_source),
+        "reference_source": row.reference_source or "",
+        "recall_at_1": recall_at_1(
+            row.question,
+            result.top_source,
+            row.reference_source,
+        ),
         "reference_answer": row.reference_answer or "",
         "exact_match": exact_match(result.answer, row.reference_answer),
         "hallucination_flag": hallucination_flag(result.answer, result.contexts),
@@ -174,7 +217,7 @@ def evaluate(config: RagConfig = DEFAULT_CONFIG) -> Path:
                 },
                 {
                     "metric": "recall_at_1_note",
-                    "value": "Recall@1 is computed from NCT identifiers when a question includes one; otherwise N/A.",
+                    "value": "Recall@1 is computed from reference_source when available, otherwise from NCT identifiers in the question; if neither is available, N/A.",
                 },
             ]
         )

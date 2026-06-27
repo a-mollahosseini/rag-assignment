@@ -15,16 +15,20 @@ def project_root() -> Path:
 class RagConfig:
     root_dir: Path = project_root()
     data_dir: Path = root_dir / "data"
-    questions_path: Path = root_dir / "Questions.xlsx"
+    questions_path: Path = (
+        root_dir / "Questions_with_reference_answers.csv"
+        if (root_dir / "Questions_with_reference_answers.csv").exists()
+        else root_dir / "Questions.xlsx"
+    )
     chroma_dir: Path = root_dir / "chroma_db"
     outputs_dir: Path = root_dir / "outputs"
     output_workbook: Path = outputs_dir / "rag_answers.xlsx"
     collection_name: str = "rag_assignment_clinical_trials"
     embedding_model: str = "mxbai-embed-large"
     generation_model: str = "mistral"
-    chunk_size: int = 1000
-    chunk_overlap: int = 200
-    top_k: int = 4
+    chunk_size: int = 1800
+    chunk_overlap: int = 350
+    top_k: int = 8
     ollama_base_url: str = "http://localhost:11434"
 
 

@@ -41,7 +41,7 @@ def config_from_args(args: argparse.Namespace) -> RagConfig:
 
 def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--data-dir", default=None, help="Directory containing source PDFs.")
-    parser.add_argument("--questions-path", default=None, help="Path to Questions.xlsx.")
+    parser.add_argument("--questions-path", default=None, help="Path to questions .xlsx or .csv file.")
     parser.add_argument("--chroma-dir", default=None, help="Persistent Chroma directory.")
     parser.add_argument("--outputs-dir", default=None, help="Output directory.")
     parser.add_argument("--output-workbook", default=None, help="Evaluation workbook path.")
